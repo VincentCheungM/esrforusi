@@ -1,0 +1,16 @@
+package sensormsglcm;
+
+struct sense_range_t
+{
+    double x_pos;
+    double y_pos;
+    double width;
+    int16_t id;
+    int16_t status;
+}
+
+struct senseRangeFrame
+{
+    int32_t nele;
+    sense_range_t sense_range[nele];
+}

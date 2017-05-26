@@ -1,0 +1,168 @@
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <pthread.h>
+#include <string.h>
+#include <iostream>
+#include <termio.h>
+#include "unistd.h"
+
+
+
+#include "./driver/controlcan.h"
+#include "Util.h"
+#include "./driver/CANDriver.h"
+#include "./viewer/cvviewer.h"
+#include "./msg/lcm/lcmbase.h"
+#include "./publisher/Publisher.h"
+#include "./handler/Handler.h"
+
+using namespace std;
+
+#define INIT_MODE 0
+#define MANUAL_MODE 2
+#define REMOTE_MODE 3
+#define AUTO_MODE 4
+/****************parameter***************************/
+short control_mode = MANUAL_MODE;
+
+
+class CANDriver  car;
+
+/***************************************************/
+
+
+
+
+/****************Function***************************/
+void* Thread_Recv_Function(void* param);
+void* Thread_Publish_Function(void* param);
+void* Thread_Shift_Function(void* param);
+void* Thread_Display_Function(void* param);
+void* Thread_Handle_Function(void* param);
+int scanKeyboard();
+/***************************************************/
+
+
+int main() {
+    if (car.start() == 1) {
+		printf("Start CAN Devive success......\n");
+	}
+	else {
+		printf("Start CAN Devive failed......\n");
+		return -1;
+	}
+
+	pthread_t threadForFeedback;
+	pthread_t threadForDisplay;
+
+    pthread_create(&threadForFeedback, NULL, Thread_Recv_Function, (LPVOID)(&car));
+    pthread_create(&threadForDisplay, NULL, Thread_Display_Function, NULL);
+
+	while(1){
+		usleep(10000);
+	}
+	return 0;
+}
+
+//receive
+void* Thread_Recv_Function(void* param) {
+    CANDriver* carFeedback = (CANDriver*)param;
+	while (true) {
+		//if (control_mode != INIT_MODE && control_mode != MANUAL_MODE) {
+			
+            if(carFeedback->recv()==0){
+				//printf("recev:\n");
+				//usleep(20000);
+			}
+		//}
+		//usleep(1000);
+	}
+}
+
+//publisher
+
+void* Thread_Publish_Function(void* param) {
+    Publisher::lcmPublisher publisher;
+
+	while (true) {
+        publisher.publish_msg(&SensorMsg::g_sensor_msgs);
+		// according to signal 
+		usleep(10000);
+	}
+}
+
+
+//handler
+
+void* Thread_Handle_Function(void* param) {
+    SensorMsgLcmHandler<sensormsglcm::senseRangeFrame> lcmhandler;
+    LcmBase* lcmbase = LcmBase::get_instance();//get lcm instance
+    lcmbase->get_lcm().subscribe("channel",&SensorMsgLcmHandler<sensormsglcm::senseRangeFrame>::handleMessage, &lcmhandler);
+    while (true) {
+        //SensorMsg::g_sensor_msgs = msg_frame;
+        // according to signal
+        usleep(10000);
+    }
+}
+
+
+//display
+
+void* Thread_Display_Function(void* param) {
+    opencvViewer cvViewer(512, 512);
+    cvViewer.init_display();
+
+	while (true) {
+        cvViewer.update(1);
+		// according to signal 
+		usleep(10000);
+	}
+}
+
+
+
+void* Thread_Shift_Function(void* param) {
+	while(1) {
+		int getcode = scanKeyboard();
+		if (getcode == 32) {
+			if (control_mode == MANUAL_MODE) {
+				control_mode = REMOTE_MODE;
+			}
+			else {
+				control_mode = MANUAL_MODE;			
+			}
+		}
+		if (control_mode == MANUAL_MODE) {
+			printf("MANUAL MODE\n");
+		}
+		else {
+			printf("REMOTE MODE\n");
+		}
+		usleep(1000);
+	}
+}
+
+
+/**
+ * @parameter Scan keyboard and detect space pressed.
+ */
+int scanKeyboard()  {  
+	int in;
+	struct termios new_settings;  
+	struct termios stored_settings;  
+	tcgetattr(0, &stored_settings);  
+	new_settings = stored_settings;  
+	new_settings.c_lflag &= (~ICANON);  
+	new_settings.c_cc[VTIME] = 0;  
+	tcgetattr(0, &stored_settings);  
+	new_settings.c_cc[VMIN] = 1;  
+	tcsetattr(0, TCSANOW,&new_settings); 
+	in = getchar();  
+	tcsetattr(0, TCSANOW,&stored_settings);  
+	return in;  
+}
+
